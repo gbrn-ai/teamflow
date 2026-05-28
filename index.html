@@ -810,6 +810,7 @@ body::after{content:"";position:fixed;inset:0;background:url("data:image/svg+xml
       <button class="btn btn-primary btn-sm" onclick="openModal('task')">
         <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Task
       </button>
+      <span id="backend-status" class="badge badge-muted" title="Supabase backend status">Checking backend</span>
     </div>
   </div>
 
@@ -1668,6 +1669,34 @@ function sbReady(){
   const key  = window.__SB_KEY  || SUPABASE_ANON;
   return url !== 'YOUR_SUPABASE_URL' && key !== 'YOUR_SUPABASE_ANON_KEY';
 }
+
+async function refreshBackendStatus(){
+  const el=document.getElementById('backend-status'); if(!el) return false;
+  if(!sbReady()){
+    el.className='badge badge-amber';
+    el.textContent='Local mode';
+    el.title='Supabase is not configured, so data only lives in this browser';
+    return false;
+  }
+  const sb=getSB();
+  if(!sb){
+    el.className='badge badge-red';
+    el.textContent='Backend offline';
+    el.title='Supabase SDK did not load';
+    return false;
+  }
+  const {error}=await sb.from('profiles').select('id',{head:true,count:'exact'}).limit(1);
+  if(error){
+    el.className='badge badge-red';
+    el.textContent='Backend error';
+    el.title=error.message;
+    return false;
+  }
+  el.className='badge badge-green';
+  el.textContent='Online';
+  el.title='Connected to Supabase';
+  return true;
+}
 </script>
 
 <script>
@@ -2063,18 +2092,16 @@ async function loadTasksFromSB(){
   const sb=getSB(); if(!sb||!sbReady()) return;
   const {data,error}=await sb.from('tasks').select('*').order('created_at',{ascending:false});
   if(error){console.warn('loadTasksFromSB:', error.message); return;}
-  if(data && data.length>0){
-    TASKS = data.map(r=>({
-      id: r.id,
-      name: r.name,
-      tag: r.tag||'dev',
-      priority: r.priority||'med',
-      due: r.due||new Date(Date.now()+7*864e5).toISOString().slice(0,10),
-      done: r.done||false,
-      assignees: r.assignees||[currentUser.initials||'GB'],
-      created_by: r.created_by||currentUser.id
-    }));
-  }
+  TASKS = (data||[]).map(r=>({
+    id: r.id,
+    name: r.name,
+    tag: r.tag||'dev',
+    priority: r.priority||'med',
+    due: r.due||new Date(Date.now()+7*864e5).toISOString().slice(0,10),
+    done: r.done||false,
+    assignees: r.assignees||[currentUser.initials||'GB'],
+    created_by: r.created_by||currentUser.id
+  }));
 }
 
 /* ── Save a task to Supabase ── */
@@ -2150,6 +2177,7 @@ async function sendInviteViaSB(email, role, firstName){
 ═══════════════════════════════════ */
 function initApp(){
   document.getElementById('page-date').textContent=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  refreshBackendStatus();
   // Show setup banner if Supabase not yet connected
   const banner=document.getElementById('sb-setup-banner');
   if(banner) banner.style.display = sbReady() ? 'none' : 'flex';
@@ -2251,6 +2279,7 @@ function toggleTask(id,el,e){
   tg.className='ttag '+(t.done?'tag-done':({design:'tag-design',dev:'tag-dev',review:'tag-review',urgent:'tag-urgent'}[t.tag]||'tag-dev'));
   tg.textContent=t.done?'✓ done':t.tag;
   showToast(t.done?'✓ Task completed':'Task reopened');
+  updateTaskDoneSB(t.id,t.done);
 }
 
 function ft(tag,btn,listId){
