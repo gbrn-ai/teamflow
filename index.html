@@ -1649,6 +1649,31 @@ const SUPABASE_URL  = 'https://ioebwngrhrrycteoihzc.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvZWJ3bmdyaHJyeWN0ZW9paHpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3ODkyMjAsImV4cCI6MjA5NTM2NTIyMH0.-5dNWBS4Gtjrp2f0Q_jFSK3feLanw6xkaaxHmx5OmUs';
 
 let _sb = null;
+const TF_MEMORY_STORAGE = {};
+function getAppStorage(){
+  try{
+    const ls=window.localStorage;
+    const probe='tf_storage_probe';
+    ls.setItem(probe,'1');
+    ls.removeItem(probe);
+    return ls;
+  }catch(err){
+    return {
+      getItem:k=>Object.prototype.hasOwnProperty.call(TF_MEMORY_STORAGE,k)?TF_MEMORY_STORAGE[k]:null,
+      setItem:(k,v)=>{TF_MEMORY_STORAGE[k]=String(v);},
+      removeItem:k=>{delete TF_MEMORY_STORAGE[k];}
+    };
+  }
+}
+function safeGetItem(key,fallback=null){
+  try{const v=getAppStorage().getItem(key);return v==null?fallback:v;}catch{return fallback;}
+}
+function safeSetItem(key,value){
+  try{getAppStorage().setItem(key,value);return true;}catch{return false;}
+}
+function safeRemoveItem(key){
+  try{getAppStorage().removeItem(key);return true;}catch{return false;}
+}
 function getSB(){
   if(_sb) return _sb;
   if(typeof window.supabase === 'undefined'){
@@ -1659,7 +1684,14 @@ function getSB(){
   const url  = (window.__SB_URL  && window.__SB_URL  !== 'YOUR_SUPABASE_URL')  ? window.__SB_URL  : SUPABASE_URL;
   const key  = (window.__SB_KEY  && window.__SB_KEY  !== 'YOUR_SUPABASE_ANON_KEY') ? window.__SB_KEY  : SUPABASE_ANON;
   if(url==='YOUR_SUPABASE_URL') return null;
-  _sb = window.supabase.createClient(url, key);
+  _sb = window.supabase.createClient(url, key, {
+    auth:{
+      storage:getAppStorage(),
+      persistSession:true,
+      autoRefreshToken:true,
+      detectSessionInUrl:true
+    }
+  });
   return _sb;
 }
 
@@ -1821,11 +1853,11 @@ function authTab(tab,btn){
 }
 
 /* ── Offline/fallback localStorage helpers (used when Supabase not configured) ── */
-function getAccounts(){try{return JSON.parse(localStorage.getItem('tf_accounts')||'[]');}catch{return[];}}
-function saveAccounts(a){localStorage.setItem('tf_accounts',JSON.stringify(a));}
-function getSession(){try{return JSON.parse(localStorage.getItem('tf_session')||'null');}catch{return null;}}
-function saveSession(u){localStorage.setItem('tf_session',JSON.stringify(u));}
-function clearSession(){localStorage.removeItem('tf_session');localStorage.removeItem('tf_sb_session');}
+function getAccounts(){try{return JSON.parse(safeGetItem('tf_accounts','[]')||'[]');}catch{return[];}}
+function saveAccounts(a){safeSetItem('tf_accounts',JSON.stringify(a));}
+function getSession(){try{return JSON.parse(safeGetItem('tf_session','null')||'null');}catch{return null;}}
+function saveSession(u){safeSetItem('tf_session',JSON.stringify(u));}
+function clearSession(){safeRemoveItem('tf_session');safeRemoveItem('tf_sb_session');}
 
 /* ── Build a currentUser object from a Supabase user + profile ── */
 function buildUserFromSB(sbUser, profile){
@@ -3304,7 +3336,7 @@ function deleteRegisteredUser(i){
 
 function clearAllAccounts(){
   if(!confirm('Delete ALL registered accounts? This cannot be undone.'))return;
-  localStorage.removeItem('tf_accounts');renderRegisteredUsers();showToast('All accounts cleared');
+  safeRemoveItem('tf_accounts');renderRegisteredUsers();showToast('All accounts cleared');
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -3314,7 +3346,7 @@ function showSBSetup(){
   const modal=document.getElementById('sb-setup-modal');
   modal.style.display='flex';
   // Pre-fill if already saved in localStorage
-  const saved=JSON.parse(localStorage.getItem('tf_sb_config')||'null');
+  const saved=JSON.parse(safeGetItem('tf_sb_config','null')||'null');
   if(saved){
     document.getElementById('sb-url-input').value=saved.url||'';
     document.getElementById('sb-key-input').value=saved.key||'';
@@ -3326,7 +3358,7 @@ function saveSBConfig(){
   const key=(document.getElementById('sb-key-input').value||'').trim();
   if(!url||!url.startsWith('https://')){showToast('⚠️ Enter a valid Supabase URL');return;}
   if(!key||key.length<20){showToast('⚠️ Enter a valid anon key');return;}
-  localStorage.setItem('tf_sb_config',JSON.stringify({url,key}));
+  safeSetItem('tf_sb_config',JSON.stringify({url,key}));
   showToast('✅ Supabase config saved! Reloading…');
   setTimeout(()=>location.reload(),1200);
 }
@@ -3340,10 +3372,10 @@ function copySQL(){
 (function loadSBConfigFromStorage(){
   // If real credentials are already hardcoded, clear any bad localStorage config and use hardcoded
   if(SUPABASE_URL !== 'YOUR_SUPABASE_URL'){
-    localStorage.removeItem('tf_sb_config');
+    safeRemoveItem('tf_sb_config');
     return;
   }
-  const saved=JSON.parse(localStorage.getItem('tf_sb_config')||'null');
+  const saved=JSON.parse(safeGetItem('tf_sb_config','null')||'null');
   if(saved&&saved.url&&saved.key){
     window.__SB_URL=saved.url;
     window.__SB_KEY=saved.key;
